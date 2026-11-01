@@ -1,0 +1,438 @@
+# =============================================================================
+# LOCAL AI STACK: Ollama + SearXNG + Firecrawl (Playwright)
+# =============================================================================
+name: local-ai-stack
+
+# ---------------------------------------------------------------------------
+# Langfuse shared environment (web + worker). Anchored to avoid duplication.
+# ---------------------------------------------------------------------------
+x-langfuse-env: &langfuse-env
+  NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3000}
+  NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+  SALT: ${LANGFUSE_SALT}
+  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+  DATABASE_URL: postgresql://postgres:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/postgres
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+  CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_CONNECTION_STRING: redis://:${LANGFUSE_REDIS_AUTH}@langfuse-redis:6379/0
+  REDIS_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_DOWNLOAD_URL_EXPIRY_SECONDS: "604800"
+  LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME}
+  LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME}
+  LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PUBLIC_KEY}
+  LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_SECRET_KEY}
+  LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+  LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME}
+  LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+  OLLAMA_BASE_URL: http://ollama:11434
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Ollama LLM Engine (Dedicated to RTX 3090 / GPU 0)
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-0.40.13}
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_BIND_PORT}:11434"
+    volumes:
+      - ./ollama:/root/.ollama
+    env_file:
+      - .env
+    environment:
+      - CUDA_VISIBLE_DEVICES=0            # Locks Ollama strictly to GPU 0
+      - OLLAMA_FLASH_ATTENTION=1          # Forces FlashAttention for speed & memory efficiency
+      - OLLAMA_KV_CACHE_TYPE=q8_0         # Quantizes KV cache to reduce VRAM footprint
+      - OLLAMA_NUM_PARALLEL=1             # Prevents multi-request context queue overhead
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - llm-network
+
+  # ---------------------------------------------------------------------------
+  # SearXNG Metasearch Engine
+  # ---------------------------------------------------------------------------
+  searxng:
+    image: searxng/searxng:${SEARXNG_VERSION:-2026.11.1-9ded3bec1}
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8088/
+      - SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
+      - UWSGI_WORKERS=2
+      - UWSGI_THREADS=1
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - llm-network
+
+  # ---------------------------------------------------------------------------
+  # Firecrawl API (Web Scrape/Crawl → Markdown for LLM Agents)
+  # ---------------------------------------------------------------------------
+  firecrawl:
+    image: ghcr.io/firecrawl/firecrawl:${FIRECRAWL_VERSION:-2.10.19}
+    container_name: firecrawl
+    restart: unless-stopped
+    ports:
+      - "${FIRECRAWL_BIND_PORT:-3002}:3002"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3002
+      - WORKER_PORT=3005
+      - EXTRACT_WORKER_PORT=3004
+      - ENV=local
+      - USE_DB_AUTHENTICATION=false
+      - REDIS_URL=redis://firecrawl-redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://firecrawl-redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape
+      - NUQ_RABBITMQ_URL=amqp://firecrawl-rabbitmq:5672
+      - POSTGRES_HOST=firecrawl-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - NUM_WORKERS_PER_QUEUE=${NUM_WORKERS_PER_QUEUE:-8}
+      - CRAWL_CONCURRENT_REQUESTS=${CRAWL_CONCURRENT_REQUESTS:-10}
+      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-5}
+      - BROWSER_POOL_SIZE=${BROWSER_POOL_SIZE:-5}
+      - BULL_AUTH_KEY=${FIRECRAWL_BULL_AUTH_KEY:-changeme}
+      - SEARXNG_ENDPOINT=http://searxng:8080
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - MODEL_NAME=${MODEL_NAME:-}
+      - MODEL_EMBEDDING_NAME=${MODEL_EMBEDDING_NAME:-}
+      - LOGGING_LEVEL=${LOGGING_LEVEL:-INFO}
+    command: node dist/src/harness.js --start-docker
+    depends_on:
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_healthy
+      firecrawl-playwright:
+        condition: service_started
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cpus: 4.0
+    mem_limit: 8G
+    memswap_limit: 8G
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3002/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - llm-network
+      - firecrawl-internal
+
+  # ---------------------------------------------------------------------------
+  # Playwright Microservice (Headless Chromium renderer for Firecrawl)
+  # ---------------------------------------------------------------------------
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service@${FIRECRAWL_PLAYWRIGHT_DIGEST:-sha256:637fb8c8399634b02c2179da72566ce11644435e5d93e895bdbde4b1f9b0882a}
+    container_name: firecrawl-playwright
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - BLOCK_MEDIA=${FIRECRAWL_BLOCK_MEDIA:-true}
+      - MAX_CONCURRENT_PAGES=${CRAWL_CONCURRENT_REQUESTS:-10}
+      - ALLOW_LOCAL_WEBHOOKS=${ALLOW_LOCAL_WEBHOOKS:-}
+      - PROXY_SERVER=${PROXY_SERVER:-}
+      - PROXY_USERNAME=${PROXY_USERNAME:-}
+      - PROXY_PASSWORD=${PROXY_PASSWORD:-}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cpus: 2.0
+    mem_limit: 4G
+    memswap_limit: 4G
+    tmpfs:
+      - /tmp/.cache:noexec,nosuid,size=1g
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - llm-network
+      - firecrawl-internal
+
+  # ---------------------------------------------------------------------------
+  # Firecrawl Job Queue Backends (internal only, no host ports)
+  # ---------------------------------------------------------------------------
+  firecrawl-redis:
+    image: redis:7-alpine
+    container_name: firecrawl-redis
+    restart: unless-stopped
+    command: redis-server --bind 0.0.0.0
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - firecrawl-internal
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-alpine
+    container_name: firecrawl-rabbitmq
+    restart: unless-stopped
+    command: rabbitmq-server
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - firecrawl-internal
+
+  firecrawl-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres@${FIRECRAWL_NUQ_POSTGRES_DIGEST:-sha256:d719b36160eac2fcbe16dc7e7360ddb9c82c40ea5da183d07bf4a755c6a0b2ae}
+    container_name: firecrawl-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+    volumes:
+      - ./firecrawl/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - firecrawl-internal
+
+  # ---------------------------------------------------------------------------
+  # Langfuse Observability (LLM tracing & analytics) - v4
+  # Backends: postgres (OLTP), clickhouse (trace store), minio (blob storage),
+  # redis (queue). Only langfuse-web is exposed to the host.
+  # ---------------------------------------------------------------------------
+
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:${LANGFUSE_VERSION:-4}
+    container_name: langfuse-web
+    restart: unless-stopped
+    ports:
+      - "${LANGFUSE_PORT:-3000}:3000"
+    environment:
+      <<: *langfuse-env
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:${MINIO_BIND_PORT:-9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+    cpus: 2.0
+    mem_limit: 2G
+    memswap_limit: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/public/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+    networks:
+      - llm-network
+      - langfuse-internal
+
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:${LANGFUSE_VERSION:-4}
+    container_name: langfuse-worker
+    restart: unless-stopped
+    environment: *langfuse-env
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+    cpus: 2.0
+    mem_limit: 4G
+    memswap_limit: 4G
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3030/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - llm-network
+      - langfuse-internal
+
+  langfuse-postgres:
+    image: postgres:17-alpine
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      TZ: UTC
+    volumes:
+      - ./langfuse/postgres:/var/lib/postgresql/data
+    mem_limit: 1G
+    memswap_limit: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - langfuse-internal
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:26.3.62.3
+    container_name: langfuse-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+    volumes:
+      - ./langfuse/clickhouse:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    mem_limit: 4G
+    memswap_limit: 4G
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - langfuse-internal
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio
+    container_name: langfuse-minio
+    restart: unless-stopped
+    entrypoint: sh
+    # Pre-creates the 'langfuse' bucket (a directory) before minio starts
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_BIND_PORT:-9090}:9000"
+      - "127.0.0.1:9091:9001"
+    volumes:
+      - ./langfuse/minio:/data
+    mem_limit: 1G
+    memswap_limit: 1G
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - langfuse-internal
+
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: langfuse-redis
+    restart: unless-stopped
+    command: redis-server --bind 0.0.0.0 --requirepass ${LANGFUSE_REDIS_AUTH} --maxmemory-policy noeviction
+    volumes:
+      - ./langfuse/redis:/data
+    mem_limit: 512M
+    memswap_limit: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - langfuse-internal
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  llm-network:
+    external: true
+  firecrawl-internal:
+    driver: bridge
+    internal: true
+  langfuse-internal:
+    driver: bridge
+    internal: true
+
+# ---------------------------------------------------------------------------
+# Volumes (none - all state uses host bind mounts)
+# ---------------------------------------------------------------------------

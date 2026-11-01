@@ -1,0 +1,6 @@
+.env
+ollama/
+searxng/
+firecrawl/
+langfuse/
+anythingllm
