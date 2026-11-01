@@ -194,28 +194,18 @@ else
   fail "scrape actions" "expected graceful not-supported error"
 fi
 
-# 11. LLM extract (skip: requires MODEL_NAME + OPENAI_API_KEY configured) ----------
+# 11. Structured extraction pipeline (scrape -> Ollama format:json) --------------
+# Exercises tests/extract.py: Firecrawl renders markdown, Ollama extracts
+# schema-shaped JSON. This is the local replacement for /v1/extract.
 T=$(now)
-EXTRACT_ERR=$(curl -s --max-time 30 -X POST "$FIRECRAWL_HOST/v1/extract" \
-  -H 'Content-Type: application/json' \
-  -d '{"urls":["https://example.com"],"prompt":"get the title"}' | \
-  json "import json,sys; d=json.load(sys.stdin); print('ok' if d.get('success') else 'needs-llm')")
-if [ "$EXTRACT_ERR" = "ok" ]; then
-  pass "v1/extract LLM extraction ($(($(now)-T))ms)"
+EXTRACT_DIR="$(cd "$(dirname "$0")" && pwd)"
+EX_OK=$("$EXTRACT_DIR/extract.py" https://quotes.toscrape.com \
+  "Extract the first quote's author as {author: string}" 2>/dev/null | \
+  json "import json,sys; d=json.load(sys.stdin); print('ok' if 'Einstein' in str(d.get('author','')) else '')")
+if [ "$EX_OK" = "ok" ]; then
+  pass "extract.py pipeline -> author=Einstein (scrape+Ollama, $(($(now)-T))ms)"
 else
-  skip "v1/extract" "no LLM configured (set MODEL_NAME + OPENAI_API_KEY in .env)"
-fi
-
-# 12. Screenshot format (edge: known gap - engine returns no data) ------------------
-T=$(now)
-SHOT_LEN=$(curl -sf --max-time 60 -X POST "$FIRECRAWL_HOST/v1/scrape" \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://example.com","formats":["screenshot@fullPage"]}' | \
-  json "import json,sys; d=json.load(sys.stdin).get('data',{}); print(len(str(d.get('screenshot',''))))")
-if [ -n "$SHOT_LEN" ] && [ "$SHOT_LEN" -gt 0 ]; then
-  pass "screenshot@fullPage -> ${SHOT_LEN} chars ($(($(now)-T))ms)"
-else
-  skip "screenshot@fullPage" "engine returns no screenshot data on this stack"
+  fail "extract.py pipeline" "extraction did not return Einstein"
 fi
 
 echo
