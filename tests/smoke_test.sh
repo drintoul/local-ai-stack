@@ -39,7 +39,7 @@ echo "${B}=================================================="
 echo "  LOCAL AI STACK - SMOKE TEST SUITE"
 echo "==================================================${N}"
 
-for script in test_ollama.sh test_searxng.sh test_firecrawl.sh test_playwright.sh; do
+for script in test_ollama.sh test_searxng.sh test_firecrawl.sh test_playwright.sh test_langfuse.sh; do
   echo
   bash "./$script"
   # shellcheck disable=SC2181
