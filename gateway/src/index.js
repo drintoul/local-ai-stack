@@ -56,7 +56,7 @@ app.use((req, res, next) => {
   // bearer requirement here would break clients (e.g. ollama SDKs) without
   // adding real protection. The console page itself (GET /) is also open —
   // it holds no data; the key is entered in its UI for API calls.
-  if (!GATEWAY_API_KEY || req.path === "/healthz"
+  if (!GATEWAY_API_KEY || ALLOW_UNAUTHENTICATED || req.path === "/healthz"
       || /^\/(ollama|searxng)(\/|$)/.test(req.path)
       || (req.method === "GET" && /^\/(index\.html)?$/.test(req.path))) return next();
   const auth = req.headers.authorization || "";

@@ -168,10 +168,13 @@ requests through the gateway** (`http://firecrawl-extended-gateway:8080` on
     search through the same front door
   * `/` → a built-in **web console** with live service-status pills; `/status`
     reports per-backend health
-  * **Auth:** all Firecrawl/interact paths require `Authorization: Bearer
-    $GATEWAY_API_KEY` (set in `.env`). `/healthz`, `/ollama/*`, and
-    `/searxng/*` are open — those upstreams are already unauthenticated on the
-    host anyway.
+  * **Auth:** this deployment runs `ALLOW_UNAUTHENTICATED=true` (trusted-local)
+    — the console and all endpoints work with no key. To enforce auth instead,
+    blank `ALLOW_UNAUTHENTICATED` and every Firecrawl/interact path requires
+    `Authorization: Bearer $GATEWAY_API_KEY` (external stacks pass
+    `FIRECRAWL_API_KEY`); `/healthz`, `/ollama/*`, and `/searxng/*` are always
+    open. Note port `18080` is host-published — keep the key enforced if your
+    LAN is untrusted.
 * **Interact** — a stateful Playwright service upstream Firecrawl lacks:
   `POST /v1/interact` accepts real browser `actions` (`goto`, `click`, `fill`,
   `waitForSelector`, `screenshot`, …), named **sessions**, **async jobs**

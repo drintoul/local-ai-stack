@@ -53,11 +53,17 @@ T=$(now)
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$GATEWAY_HOST/healthz")
 if [ "$CODE" = "200" ]; then pass "GET /healthz -> http 200 ($(($(now)-T))ms)"; else fail "GET /healthz" "http $CODE"; fi
 
-# 2. auth required on firecrawl paths -------------------------------------------
+# 2. auth posture on firecrawl paths (401 = bearer enforced, 200 = ALLOW_UNAUTHENTICATED)
 T=$(now)
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$GATEWAY_HOST/v1/scrape" \
   -H 'Content-Type: application/json' -d '{"url":"https://example.com"}')
-if [ "$CODE" = "401" ]; then pass "unauthenticated /v1/scrape -> http 401 ($(($(now)-T))ms)"; else fail "unauth scrape" "expected 401, got $CODE"; fi
+if [ "$CODE" = "401" ]; then
+  pass "unauthenticated /v1/scrape -> http 401, bearer enforced ($(($(now)-T))ms)"
+elif [ "$CODE" = "200" ]; then
+  pass "unauthenticated /v1/scrape -> http 200, ALLOW_UNAUTHENTICATED mode ($(($(now)-T))ms)"
+else
+  fail "unauth scrape" "unexpected http $CODE"
+fi
 
 # 3. authed scrape proxied to firecrawl ------------------------------------------
 T=$(now)
