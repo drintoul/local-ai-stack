@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile, readdir, stat, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, firefox, webkit, devices } from "playwright";
@@ -13,6 +13,7 @@ const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS || "600000", 10);
 const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || "10", 10);
 const DEFAULT_TIMEOUT_MS = parseInt(process.env.DEFAULT_ACTION_TIMEOUT_MS || "15000", 10);
 const ARTIFACT_ROOT = process.env.ARTIFACT_DIR || join(tmpdir(), "interact-artifacts");
+const ARTIFACT_TTL_MS = parseInt(process.env.ARTIFACT_TTL_MS || "86400000", 10);
 // Vision model used to describe page screenshots during prompt-mode agent
 // steps (e.g. a VLM like qwen2.5vl). Set to "" to disable; per-request
 // `vision: false` or `vision: "<model>"` overrides.
@@ -211,7 +212,7 @@ async function closeSession(id) {
 }
 
 // TTL sweeper
-setInterval(() => {
+setInterval(async () => {
   const now = Date.now();
   for (const [id, s] of sessions) {
     if (now - s.lastUsed > SESSION_TTL_MS) closeSession(id);
@@ -219,6 +220,17 @@ setInterval(() => {
   for (const [id, j] of jobs) {
     if (j.finishedAt && now - j.finishedAt > JOB_TTL_MS) jobs.delete(id);
   }
+  // Janitor: session artifacts (HARs/videos/traces) are persisted for
+  // post-mortem, but would otherwise accumulate on the host bind mount
+  // forever — prune directories older than ARTIFACT_TTL_MS.
+  try {
+    for (const name of await readdir(ARTIFACT_ROOT)) {
+      if (!name.startsWith("session-")) continue;
+      const dir = join(ARTIFACT_ROOT, name);
+      const st = await stat(dir).catch(() => null);
+      if (st && now - st.mtimeMs > ARTIFACT_TTL_MS) await rm(dir, { recursive: true, force: true });
+    }
+  } catch { /* artifact root missing is fine */ }
 }, 30000).unref();
 
 // ---------------------------------------------------------------------------

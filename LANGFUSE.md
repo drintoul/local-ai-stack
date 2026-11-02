@@ -215,7 +215,7 @@ Everything lives in `.env` (secrets are generated, gitignored):
 
 | Variable | Purpose |
 | :--- | :--- |
-| `LANGFUSE_VERSION` | Image tag (`4`) pulled from `docker.langfuse.com` |
+| `LANGFUSE_DIGEST` + `LANGFUSE_WORKER_DIGEST` | Image digests (v4.72.0) pulled from `docker.langfuse.com` |
 | `LANGFUSE_PORT` | Web UI port (default `3000`) |
 | `MINIO_BIND_PORT` | MinIO port for browser media uploads (`9090`) |
 | `LANGFUSE_NEXTAUTH_SECRET` / `SALT` / `ENCRYPTION_KEY` | Session & credential crypto — **do not lose**, rotating invalidates sessions |

@@ -62,28 +62,38 @@ DEAD_ENGINES=$(echo "$SEARCH_INFO" | cut -d' ' -f2)
 TOP_TITLE=$(echo "$SEARCH_INFO" | cut -d' ' -f3- | tr '_' ' ')
 if [ -n "$RESULT_COUNT" ] && [ "$RESULT_COUNT" -gt 0 ]; then
   pass "search format=json -> $RESULT_COUNT results, top: \"$TOP_TITLE\", unresponsive engines: $DEAD_ENGINES ($(($(now)-T))ms)"
+elif [ "$DEAD_ENGINES" -gt 0 ] 2>/dev/null; then
+  skip "search format=json" "upstream engines suspended (CAPTCHA/429) — retest in a few minutes"
 else
   fail "search format=json" "no results (check formats: in settings.yml)"
 fi
 
 # 3. Pagination (edge: pageno=2 returns distinct page) ---------------------------
 T=$(now)
-PAGE2_COUNT=$(curl -sf --max-time 30 "$SEARXNG_HOST/search?q=ollama&format=json&pageno=2" | \
-  json "import json,sys; print(len(json.load(sys.stdin).get('results',[])))")
+PAGE2_RESP=$(curl -sf --max-time 30 "$SEARXNG_HOST/search?q=ollama&format=json&pageno=2")
+PAGE2_COUNT=$(echo "$PAGE2_RESP" | json "import json,sys; print(len(json.load(sys.stdin).get('results',[])))")
 if [ -n "$PAGE2_COUNT" ] && [ "$PAGE2_COUNT" -gt 0 ]; then
   pass "search pageno=2 -> $PAGE2_COUNT results ($(($(now)-T))ms)"
+elif [ "$(echo "$PAGE2_RESP" | json "import json,sys; print(len(json.load(sys.stdin).get('unresponsive_engines',[])))" )" -gt 0 ]; then
+  skip "search pageno=2" "upstream engines suspended (CAPTCHA/429) — retest in a few minutes"
 else
   fail "search pageno=2" "no results on page 2"
 fi
 
 # 4. Special characters (edge: URL-encoded reserved chars) -----------------------
 T=$(now)
-ENCODED_COUNT=$(curl -sf --get --max-time 30 "$SEARXNG_HOST/search" \
-  --data-urlencode 'q=C++ vs C#: differences & similarities' \
-  --data-urlencode 'format=json' | \
-  json "import json,sys; print(len(json.load(sys.stdin).get('results',[])))")
+for a in 1 2; do
+  ENCODED_RESP=$(curl -sf --get --max-time 30 "$SEARXNG_HOST/search" \
+    --data-urlencode 'q=C++ vs C#: differences & similarities' \
+    --data-urlencode 'format=json')
+  ENCODED_COUNT=$(echo "$ENCODED_RESP" | json "import json,sys; print(len(json.load(sys.stdin).get('results',[])))")
+  [ -n "$ENCODED_COUNT" ] && [ "$ENCODED_COUNT" -gt 0 ] && break
+  [ "$a" = 1 ] && sleep 8   # engines may be briefly suspended (CAPTCHA/429)
+done
 if [ -n "$ENCODED_COUNT" ] && [ "$ENCODED_COUNT" -gt 0 ]; then
   pass "URL-encoded query 'C++ vs C#...' -> $ENCODED_COUNT results ($(($(now)-T))ms)"
+elif [ "$(echo "$ENCODED_RESP" | json "import json,sys; print(len(json.load(sys.stdin).get('unresponsive_engines',[])))" )" -gt 0 ]; then
+  skip "URL-encoded query" "upstream engines suspended (CAPTCHA/429) — retest in a few minutes"
 else
   fail "URL-encoded query" "no results for special characters"
 fi
@@ -160,10 +170,16 @@ fi
 
 # 12. Time-range filter (edge: time_range=day) ---------------------------------------
 T=$(now)
-TIME_COUNT=$(curl -sf --max-time 30 "$SEARXNG_HOST/search?q=news&format=json&time_range=day" | \
-  json "import json,sys; print(len(json.load(sys.stdin).get('results',[])))")
+for a in 1 2; do
+  TIME_RESP=$(curl -sf --max-time 30 "$SEARXNG_HOST/search?q=news&format=json&time_range=day")
+  TIME_COUNT=$(echo "$TIME_RESP" | json "import json,sys; print(len(json.load(sys.stdin).get('results',[])))")
+  [ -n "$TIME_COUNT" ] && [ "$TIME_COUNT" -gt 0 ] && break
+  [ "$a" = 1 ] && sleep 8
+done
 if [ -n "$TIME_COUNT" ] && [ "$TIME_COUNT" -gt 0 ]; then
   pass "time_range=day -> $TIME_COUNT results ($(($(now)-T))ms)"
+elif [ "$(echo "$TIME_RESP" | json "import json,sys; print(len(json.load(sys.stdin).get('unresponsive_engines',[])))" )" -gt 0 ]; then
+  skip "time_range=day" "upstream engines suspended (CAPTCHA/429) — retest in a few minutes"
 else
   fail "time_range=day" "no results with time filter"
 fi

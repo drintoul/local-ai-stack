@@ -107,14 +107,20 @@ fi
 
 # 6. Search honoring limit (edge: limit=2 yields exactly 2) ----------------------
 T=$(now)
-SEARCH_COUNT=$(curl -sf --max-time 60 -X POST "$FIRECRAWL_HOST/v1/search" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"web scraping","limit":2}' | \
-  json "import json,sys; print(len(json.load(sys.stdin).get('data',[])))")
+for a in 1 2; do
+  SEARCH_COUNT=$(curl -sf --max-time 60 -X POST "$FIRECRAWL_HOST/v1/search" \
+    -H 'Content-Type: application/json' \
+    -d '{"query":"web scraping","limit":2}' | \
+    json "import json,sys; print(len(json.load(sys.stdin).get('data',[])))")
+  [ -n "$SEARCH_COUNT" ] && [ "$SEARCH_COUNT" -gt 0 ] && break
+  [ "$a" = 1 ] && sleep 8   # SearXNG engines can be briefly suspended (429/CAPTCHA)
+done
 if [ "$SEARCH_COUNT" = "2" ]; then
   pass "v1/search limit=2 -> exactly 2 results via SearXNG ($(($(now)-T))ms)"
 elif [ -n "$SEARCH_COUNT" ] && [ "$SEARCH_COUNT" -gt 0 ]; then
   fail "v1/search" "limit=2 returned $SEARCH_COUNT results"
+elif [ "$(curl -s --max-time 20 'http://localhost:8088/search?q=test&format=json' | json "import json,sys; print(len(json.load(sys.stdin).get('unresponsive_engines',[])))" )" -gt 0 ]; then
+  skip "v1/search" "SearXNG engines suspended upstream (CAPTCHA/429) — retest in a few minutes"
 else
   fail "v1/search" "SearXNG backend integration failed"
 fi

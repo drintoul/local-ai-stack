@@ -323,7 +323,7 @@ app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 // Inbound bearer auth — the same GATEWAY_API_KEY this server forwards to the
 // gateway. Anonymous access is only possible under the explicit opt-out.
 app.use("/mcp", (req, res, next) => {
-  if (!GATEWAY_API_KEY) return next();
+  if (!GATEWAY_API_KEY || ALLOW_UNAUTHENTICATED) return next();
   if ((req.headers.authorization || "") === `Bearer ${GATEWAY_API_KEY}`) return next();
   res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null });
 });

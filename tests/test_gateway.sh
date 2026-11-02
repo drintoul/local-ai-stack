@@ -87,9 +87,19 @@ if [ -n "$MODELS" ] && [ "$MODELS" -gt 0 ]; then pass "/ollama proxy -> ${MODELS
 
 # 6. /searxng front-door proxy (no auth) -----------------------------------------
 T=$(now)
-RES=$(curl -s --max-time 20 "$GATEWAY_HOST/searxng/search?q=ollama&format=json" | \
-  json "import json,sys; print(len(json.load(sys.stdin)['results']))")
-if [ -n "$RES" ] && [ "$RES" -gt 0 ]; then pass "/searxng proxy -> ${RES} results ($(($(now)-T))ms)"; else fail "/searxng proxy" "no results"; fi
+for a in 1 2; do
+  SXRESP=$(curl -s --max-time 20 "$GATEWAY_HOST/searxng/search?q=ollama&format=json")
+  RES=$(echo "$SXRESP" | json "import json,sys; print(len(json.load(sys.stdin)['results']))")
+  [ -n "$RES" ] && [ "$RES" -gt 0 ] && break
+  [ "$a" = 1 ] && sleep 8   # upstream engines can be briefly suspended
+done
+if [ -n "$RES" ] && [ "$RES" -gt 0 ]; then
+  pass "/searxng proxy -> ${RES} results ($(($(now)-T))ms)"
+elif [ "$(echo "$SXRESP" | json "import json,sys; print(len(json.load(sys.stdin).get('unresponsive_engines',[])))" )" -gt 0 ]; then
+  skip "/searxng proxy" "upstream engines suspended (CAPTCHA/429) — retest in a few minutes"
+else
+  fail "/searxng proxy" "no results"
+fi
 
 # 7. console UI ------------------------------------------------------------------
 T=$(now)
@@ -195,7 +205,30 @@ TOOLS=$(curl -s --max-time 15 -X POST "$MCP_HOST/mcp" -H "$AUTH" \
 TOOL_N=$(echo "$TOOLS" | wc -w)
 if [ "$TOOL_N" -gt 0 ]; then pass "MCP tools/list -> $TOOL_N tools [$TOOLS] ($(($(now)-T))ms)"; else fail "MCP tools/list" "no tools"; fi
 
-# 16. /containers stack health report (docker socket) -----------------------------
+# 16. MCP tools/call invocation (firecrawl_interact_sessions) ---------------------
+T=$(now)
+CALL=$(curl -s --max-time 30 -X POST "$MCP_HOST/mcp" -H "$AUTH" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"firecrawl_interact_sessions","arguments":{}}}')
+if echo "$CALL" | grep -q '"isError":false\|"content"'; then
+  pass "MCP tools/call interact_sessions -> executed ($(($(now)-T))ms)"
+else
+  fail "MCP tools/call" "$(echo "$CALL" | head -c 120)"
+fi
+
+# 17. /v1/research composed endpoint (searxng -> scrape -> ollama answer) -----------
+T=$(now)
+RESEARCH=$(curl -s --max-time 240 -X POST "$GATEWAY_HOST/v1/research" -H "$AUTH" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"what is ollama","limit":3}' | \
+  json "import json,sys; d=json.load(sys.stdin); print(d.get('success'), len(d.get('answer') or ''), len(d.get('sources') or d.get('documents') or []))")
+if echo "$RESEARCH" | grep -q "True"; then
+  pass "/v1/research -> grounded answer ($(echo "$RESEARCH" | awk '{print $2"c, "$3" sources"}'), $(($(now)-T))ms)"
+else
+  fail "/v1/research" "${RESEARCH:-timeout}"
+fi
+
+# 18. /containers stack health report (docker socket) -----------------------------
 T=$(now)
 REPORT=$(curl -s --max-time 15 "$GATEWAY_HOST/containers" -H "$AUTH" | \
   json "import json,sys; l=json.load(sys.stdin); healthy=sum(1 for c in l if c.get('health') in ('healthy','no-healthcheck')); print(f'{healthy}/{len(l)}')")

@@ -7,7 +7,7 @@ name: local-ai-stack
 # Langfuse shared environment (web + worker). Anchored to avoid duplication.
 # ---------------------------------------------------------------------------
 x-langfuse-env: &langfuse-env
-  NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3000}
+  NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT}
   NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
   SALT: ${LANGFUSE_SALT}
   ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
@@ -35,9 +35,9 @@ x-langfuse-env: &langfuse-env
   LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
   LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_MEDIA_DOWNLOAD_URL_EXPIRY_SECONDS: "604800"
-  LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-local-ai-stack}
+  LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID}
   LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME}
-  LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-local}
+  LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID}
   LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME}
   LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PUBLIC_KEY}
   LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_SECRET_KEY}
@@ -46,15 +46,22 @@ x-langfuse-env: &langfuse-env
   LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
   OLLAMA_BASE_URL: http://ollama:11434
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ---------------------------------------------------------------------------
   # Ollama LLM Engine (Dedicated to RTX 3090 / GPU 0)
   # ---------------------------------------------------------------------------
   ollama:
-    image: ollama/ollama:${OLLAMA_VERSION:-0.40.13}
+    image: ollama/ollama:${OLLAMA_VERSION}
     container_name: ollama
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${OLLAMA_BIND_PORT}:11434"
     volumes:
@@ -86,9 +93,10 @@ services:
   # SearXNG Metasearch Engine
   # ---------------------------------------------------------------------------
   searxng:
-    image: searxng/searxng:${SEARXNG_VERSION:-2026.11.1-9ded3bec1}
+    image: searxng/searxng:${SEARXNG_VERSION}
     container_name: searxng
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8088:8080"
     volumes:
@@ -120,11 +128,12 @@ services:
   # Firecrawl API (Web Scrape/Crawl → Markdown for LLM Agents)
   # ---------------------------------------------------------------------------
   firecrawl:
-    image: ghcr.io/firecrawl/firecrawl:${FIRECRAWL_VERSION:-2.10.19}
+    image: ghcr.io/firecrawl/firecrawl:${FIRECRAWL_VERSION}
     container_name: firecrawl
     restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "${FIRECRAWL_BIND_PORT:-3002}:3002"
+      - "127.0.0.1:${FIRECRAWL_BIND_PORT}:3002"
     environment:
       - HOST=0.0.0.0
       - PORT=3002
@@ -138,21 +147,21 @@ services:
       - NUQ_RABBITMQ_URL=amqp://firecrawl-rabbitmq:5672
       - POSTGRES_HOST=firecrawl-postgres
       - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
-      - NUM_WORKERS_PER_QUEUE=${NUM_WORKERS_PER_QUEUE:-8}
-      - CRAWL_CONCURRENT_REQUESTS=${CRAWL_CONCURRENT_REQUESTS:-10}
-      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-5}
-      - BROWSER_POOL_SIZE=${BROWSER_POOL_SIZE:-5}
-      - BULL_AUTH_KEY=${FIRECRAWL_BULL_AUTH_KEY:-changeme}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - NUM_WORKERS_PER_QUEUE=${NUM_WORKERS_PER_QUEUE}
+      - CRAWL_CONCURRENT_REQUESTS=${CRAWL_CONCURRENT_REQUESTS}
+      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS}
+      - BROWSER_POOL_SIZE=${BROWSER_POOL_SIZE}
+      - BULL_AUTH_KEY=${FIRECRAWL_BULL_AUTH_KEY}
       - SEARXNG_ENDPOINT=http://searxng:8080
       - OLLAMA_BASE_URL=http://ollama:11434
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
-      - MODEL_NAME=${MODEL_NAME:-}
-      - MODEL_EMBEDDING_NAME=${MODEL_EMBEDDING_NAME:-}
-      - LOGGING_LEVEL=${LOGGING_LEVEL:-INFO}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - MODEL_NAME=${MODEL_NAME}
+      - MODEL_EMBEDDING_NAME=${MODEL_EMBEDDING_NAME}
+      - LOGGING_LEVEL=${LOGGING_LEVEL}
     command: node dist/src/harness.js --start-docker
     depends_on:
       firecrawl-redis:
@@ -186,17 +195,18 @@ services:
   # Playwright Microservice (Headless Chromium renderer for Firecrawl)
   # ---------------------------------------------------------------------------
   firecrawl-playwright:
-    image: ghcr.io/firecrawl/playwright-service@${FIRECRAWL_PLAYWRIGHT_DIGEST:-sha256:637fb8c8399634b02c2179da72566ce11644435e5d93e895bdbde4b1f9b0882a}
+    image: ghcr.io/firecrawl/playwright-service@${FIRECRAWL_PLAYWRIGHT_DIGEST}
     container_name: firecrawl-playwright
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - PORT=3000
-      - BLOCK_MEDIA=${FIRECRAWL_BLOCK_MEDIA:-true}
-      - MAX_CONCURRENT_PAGES=${CRAWL_CONCURRENT_REQUESTS:-10}
-      - ALLOW_LOCAL_WEBHOOKS=${ALLOW_LOCAL_WEBHOOKS:-}
-      - PROXY_SERVER=${PROXY_SERVER:-}
-      - PROXY_USERNAME=${PROXY_USERNAME:-}
-      - PROXY_PASSWORD=${PROXY_PASSWORD:-}
+      - BLOCK_MEDIA=${FIRECRAWL_BLOCK_MEDIA}
+      - MAX_CONCURRENT_PAGES=${CRAWL_CONCURRENT_REQUESTS}
+      - ALLOW_LOCAL_WEBHOOKS=${ALLOW_LOCAL_WEBHOOKS}
+      - PROXY_SERVER=${PROXY_SERVER}
+      - PROXY_USERNAME=${PROXY_USERNAME}
+      - PROXY_PASSWORD=${PROXY_PASSWORD}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -220,9 +230,10 @@ services:
   # Firecrawl Job Queue Backends (internal only, no host ports)
   # ---------------------------------------------------------------------------
   firecrawl-redis:
-    image: redis:7-alpine
+    image: redis@${REDIS_DIGEST}
     container_name: firecrawl-redis
     restart: unless-stopped
+    logging: *default-logging
     command: redis-server --bind 0.0.0.0
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -233,9 +244,10 @@ services:
       - firecrawl-internal
 
   firecrawl-rabbitmq:
-    image: rabbitmq:3-alpine
+    image: rabbitmq@${RABBITMQ_DIGEST}
     container_name: firecrawl-rabbitmq
     restart: unless-stopped
+    logging: *default-logging
     command: rabbitmq-server
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
@@ -247,17 +259,18 @@ services:
       - firecrawl-internal
 
   firecrawl-postgres:
-    image: ghcr.io/firecrawl/nuq-postgres@${FIRECRAWL_NUQ_POSTGRES_DIGEST:-sha256:d719b36160eac2fcbe16dc7e7360ddb9c82c40ea5da183d07bf4a755c6a0b2ae}
+    image: ghcr.io/firecrawl/nuq-postgres@${FIRECRAWL_NUQ_POSTGRES_DIGEST}
     container_name: firecrawl-postgres
     restart: unless-stopped
+    logging: *default-logging
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - ./firecrawl/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -273,19 +286,20 @@ services:
     build: ./gateway
     container_name: firecrawl-extended-gateway
     restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "${GATEWAY_PORT:-18080}:8080"
+      - "${GATEWAY_PORT}:8080"
     environment:
       PORT: "8080"
       FIRECRAWL_API_URL: http://firecrawl:3002
       INTERACT_SERVICE_URL: http://firecrawl-extended-interact:3001
       PLAYWRIGHT_SERVICE_URL: http://firecrawl-playwright:3000
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-180000}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS}
       SEARXNG_ENDPOINT: http://searxng:8080
-      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
-      ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY}
+      ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED}
     volumes:
       # Read-only: powers GET /containers stack health report
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -308,13 +322,14 @@ services:
     build: ./mcp
     container_name: firecrawl-extended-mcp
     restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "${MCP_PORT:-18081}:8081"
+      - "${MCP_PORT}:8081"
     environment:
       PORT: "8081"
       GATEWAY_URL: http://firecrawl-extended-gateway:8080
-      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
-      ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY}
+      ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED}
     depends_on:
       firecrawl-extended-gateway:
         condition: service_started
@@ -331,20 +346,22 @@ services:
     build: ./interact
     container_name: firecrawl-extended-interact
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PORT: "3001"
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
-      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-180000}
-      SESSION_TTL_MS: ${INTERACT_SESSION_TTL_MS:-600000}
-      MAX_SESSIONS: ${INTERACT_MAX_SESSIONS:-10}
-      JOB_TTL_MS: ${INTERACT_JOB_TTL_MS:-600000}
-      INTERACT_VISION_MODEL: ${INTERACT_VISION_MODEL:-}
-      INTERACT_ADBLOCK: ${INTERACT_ADBLOCK:-}
-      INTERACT_FALLBACK_LAUNCH_ARGS: ${INTERACT_FALLBACK_LAUNCH_ARGS:-}
-      INTERACT_ALLOW_PRIVATE: ${INTERACT_ALLOW_PRIVATE:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      OLLAMA_KEEP_ALIVE: ${INTERACT_OLLAMA_KEEP_ALIVE}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS}
+      SESSION_TTL_MS: ${INTERACT_SESSION_TTL_MS}
+      MAX_SESSIONS: ${INTERACT_MAX_SESSIONS}
+      JOB_TTL_MS: ${INTERACT_JOB_TTL_MS}
+      INTERACT_VISION_MODEL: ${INTERACT_VISION_MODEL}
+      INTERACT_ADBLOCK: ${INTERACT_ADBLOCK}
+      INTERACT_FALLBACK_LAUNCH_ARGS: ${INTERACT_FALLBACK_LAUNCH_ARGS}
+      INTERACT_ALLOW_PRIVATE: ${INTERACT_ALLOW_PRIVATE}
       ARTIFACT_DIR: /artifacts
+      ARTIFACT_TTL_MS: ${INTERACT_ARTIFACT_TTL_MS}
     volumes:
       - ./interact/artifacts:/artifacts
     shm_size: "1gb"
@@ -364,15 +381,16 @@ services:
   # ---------------------------------------------------------------------------
 
   langfuse-web:
-    image: docker.langfuse.com/langfuse/langfuse:${LANGFUSE_VERSION:-4}
+    image: docker.langfuse.com/langfuse/langfuse@${LANGFUSE_DIGEST}
     container_name: langfuse-web
     restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "${LANGFUSE_PORT:-3000}:3000"
+      - "${LANGFUSE_PORT}:3000"
     environment:
       <<: *langfuse-env
       HOSTNAME: 0.0.0.0
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:${MINIO_BIND_PORT:-9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:${MINIO_BIND_PORT}
       LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
     depends_on:
       langfuse-postgres:
@@ -397,9 +415,10 @@ services:
       - langfuse-internal
 
   langfuse-worker:
-    image: docker.langfuse.com/langfuse/langfuse-worker:${LANGFUSE_VERSION:-4}
+    image: docker.langfuse.com/langfuse/langfuse-worker@${LANGFUSE_WORKER_DIGEST}
     container_name: langfuse-worker
     restart: unless-stopped
+    logging: *default-logging
     environment:
       <<: *langfuse-env
       HOSTNAME: 0.0.0.0
@@ -426,9 +445,10 @@ services:
       - langfuse-internal
 
   langfuse-postgres:
-    image: postgres:17-alpine
+    image: postgres@${POSTGRES_DIGEST}
     container_name: langfuse-postgres
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
@@ -451,6 +471,7 @@ services:
     image: clickhouse/clickhouse-server:26.3.62.3
     container_name: langfuse-clickhouse
     restart: unless-stopped
+    logging: *default-logging
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -474,9 +495,10 @@ services:
       - langfuse-internal
 
   langfuse-minio:
-    image: cgr.dev/chainguard/minio
+    image: cgr.dev/chainguard/minio@${MINIO_DIGEST}
     container_name: langfuse-minio
     restart: unless-stopped
+    logging: *default-logging
     entrypoint: sh
     # Pre-creates the 'langfuse' bucket (a directory) before minio starts
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
@@ -484,7 +506,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - "${MINIO_BIND_PORT:-9090}:9000"
+      - "${MINIO_BIND_PORT}:9000"
       - "127.0.0.1:9091:9001"
     volumes:
       - ./langfuse/minio:/data
@@ -500,9 +522,10 @@ services:
       - langfuse-internal
 
   langfuse-redis:
-    image: redis:7-alpine
+    image: redis@${REDIS_DIGEST}
     container_name: langfuse-redis
     restart: unless-stopped
+    logging: *default-logging
     command: redis-server --bind 0.0.0.0 --requirepass ${LANGFUSE_REDIS_AUTH} --maxmemory-policy noeviction
     volumes:
       - ./langfuse/redis:/data

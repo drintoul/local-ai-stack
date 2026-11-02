@@ -59,10 +59,13 @@ An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**
 * **Storage:** At least 50–100 GB of free space depending on the number of models pulled.
 
 ### 2. Launch the Stack
-Start all services in detached mode using Docker Compose:
+The stack expects two external Docker networks (other projects share them),
+then builds three custom images on first launch:
 
 ```bash
-docker compose up -d
+docker network create llm-network   # shared bus: ollama, searxng, firecrawl, langfuse
+docker network create app-network   # consumer network for other stacks -> gateway
+docker compose up -d --build        # gateway/mcp/interact build locally on first run
 ```
 
 Verify that all containers are healthy:
