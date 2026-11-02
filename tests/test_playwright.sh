@@ -133,6 +133,71 @@ if docker ps --format '{{.Names}}' | grep -qx "$EXEC_CONTAINER"; then
   else
     fail "SSRF guard" "expected 403 private-address block, got status=$SSRF_SC"
   fi
+
+  # 6. Missing url -> validation rejection --------------------------------------
+  T=$(now)
+  NOURL=$(docker exec "$EXEC_CONTAINER" node -e "
+    fetch('http://$PW_CONTAINER:3000/scrape', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({timeout: 15000})
+    }).then(r => r.text()).then(t => {
+      try { const d = JSON.parse(t); console.log((d.pageError||d.error||'') !== '' || !d.content ? 'rejected' : 'accepted') }
+      catch { console.log('rejected') }
+    }).catch(() => console.log('rejected'))" 2>/dev/null)
+  if [ "$NOURL" = "rejected" ]; then
+    pass "missing url -> graceful rejection ($(($(now)-T))ms)"
+  else
+    fail "missing url" "request without url was accepted"
+  fi
+
+  # 7. Non-http scheme -> refused ------------------------------------------------
+  T=$(now)
+  SCHEME=$(docker exec "$EXEC_CONTAINER" node -e "
+    fetch('http://$PW_CONTAINER:3000/scrape', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: 'ftp://example.com/file', timeout: 15000})
+    }).then(r => r.text()).then(t => {
+      try { const d = JSON.parse(t); console.log((d.pageStatusCode||'') + '|' + (d.pageError||'')) }
+      catch { console.log('|') }
+    }).catch(() => console.log('|'))" 2>/dev/null)
+  if [ -n "${SCHEME##*|}" ] || [ "${SCHEME%%|*}" -ge 400 ] 2>/dev/null; then
+    pass "ftp:// scheme refused -> \"${SCHEME##*|}\" status=${SCHEME%%|*} ($(($(now)-T))ms)"
+  else
+    fail "non-http scheme" "ftp target not refused"
+  fi
+
+  # 8. Timeout honored on slow target ----------------------------------------------
+  T=$(now)
+  TIMEOUT_RES=$(docker exec "$EXEC_CONTAINER" node -e "
+    fetch('http://$PW_CONTAINER:3000/scrape', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: 'https://httpbin.org/delay/10', timeout: 4000})
+    }).then(r => r.text()).then(t => {
+      try { const d = JSON.parse(t); console.log(d.content && d.content.length > 0 ? 'rendered' : 'timed-out') }
+      catch { console.log('timed-out') }
+    }).catch(() => console.log('timed-out'))" 2>/dev/null)
+  ELAPSED=$(( $(now) - T ))
+  if [ "$TIMEOUT_RES" = "timed-out" ] && [ "$ELAPSED" -lt 20000 ]; then
+    pass "timeout=4000 on /delay/10 -> graceful timeout in ${ELAPSED}ms"
+  else
+    fail "timeout handling" "result=$TIMEOUT_RES after ${ELAPSED}ms"
+  fi
+
+  # 9. Malformed url string -> rejected ---------------------------------------------
+  T=$(now)
+  BADURL=$(docker exec "$EXEC_CONTAINER" node -e "
+    fetch('http://$PW_CONTAINER:3000/scrape', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: 'not-a-url', timeout: 10000})
+    }).then(r => r.text()).then(t => {
+      try { const d = JSON.parse(t); console.log((d.pageError||d.error||'') !== '' || !d.content ? 'rejected' : 'accepted') }
+      catch { console.log('rejected') }
+    }).catch(() => console.log('rejected'))" 2>/dev/null)
+  if [ "$BADURL" = "rejected" ]; then
+    pass "malformed url 'not-a-url' -> graceful rejection ($(($(now)-T))ms)"
+  else
+    fail "malformed url" "garbage url was accepted"
+  fi
 else
   skip "direct service checks" "exec container '$EXEC_CONTAINER' not running"
 fi

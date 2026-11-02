@@ -266,6 +266,98 @@ services:
       - firecrawl-internal
 
   # ---------------------------------------------------------------------------
+  # Firecrawl Extended: unified gateway (:18080), MCP interface (:18081),
+  # stateful Playwright interact service (ported from firecrawl-extended repo)
+  # ---------------------------------------------------------------------------
+  firecrawl-extended-gateway:
+    build: ./gateway
+    container_name: firecrawl-extended-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-18080}:8080"
+    environment:
+      PORT: "8080"
+      FIRECRAWL_API_URL: http://firecrawl:3002
+      INTERACT_SERVICE_URL: http://firecrawl-extended-interact:3001
+      PLAYWRIGHT_SERVICE_URL: http://firecrawl-playwright:3000
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-180000}
+      SEARXNG_ENDPOINT: http://searxng:8080
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
+      ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-}
+    volumes:
+      # Read-only: powers GET /containers stack health report
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      firecrawl:
+        condition: service_started
+      firecrawl-extended-interact:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - llm-network
+      - app-network
+
+  firecrawl-extended-mcp:
+    build: ./mcp
+    container_name: firecrawl-extended-mcp
+    restart: unless-stopped
+    ports:
+      - "${MCP_PORT:-18081}:8081"
+    environment:
+      PORT: "8081"
+      GATEWAY_URL: http://firecrawl-extended-gateway:8080
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
+      ALLOW_UNAUTHENTICATED: ${ALLOW_UNAUTHENTICATED:-}
+    depends_on:
+      firecrawl-extended-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - llm-network
+
+  firecrawl-extended-interact:
+    build: ./interact
+    container_name: firecrawl-extended-interact
+    restart: unless-stopped
+    environment:
+      PORT: "3001"
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-180000}
+      SESSION_TTL_MS: ${INTERACT_SESSION_TTL_MS:-600000}
+      MAX_SESSIONS: ${INTERACT_MAX_SESSIONS:-10}
+      JOB_TTL_MS: ${INTERACT_JOB_TTL_MS:-600000}
+      INTERACT_VISION_MODEL: ${INTERACT_VISION_MODEL:-}
+      INTERACT_ADBLOCK: ${INTERACT_ADBLOCK:-}
+      INTERACT_FALLBACK_LAUNCH_ARGS: ${INTERACT_FALLBACK_LAUNCH_ARGS:-}
+      INTERACT_ALLOW_PRIVATE: ${INTERACT_ALLOW_PRIVATE:-}
+      ARTIFACT_DIR: /artifacts
+    volumes:
+      - ./interact/artifacts:/artifacts
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - llm-network
+
+  # ---------------------------------------------------------------------------
   # Langfuse Observability (LLM tracing & analytics) - v4
   # Backends: postgres (OLTP), clickhouse (trace store), minio (blob storage),
   # redis (queue). Only langfuse-web is exposed to the host.
@@ -430,6 +522,8 @@ services:
 # ---------------------------------------------------------------------------
 networks:
   llm-network:
+    external: true
+  app-network:
     external: true
   firecrawl-internal:
     driver: bridge

@@ -16,12 +16,16 @@ An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**
 │   ├── limiter.toml        # SearXNG rate-limiting configuration
 │   └── settings.yml        # Optimized SearXNG search & output settings for RAG
 ├── firecrawl/              # Firecrawl NuQ Postgres job-queue data (bind mount)
+├── gateway/                # Unified REST gateway + web console (port 18080)
+├── interact/               # Stateful Playwright browser-automation service
+├── mcp/                    # MCP server exposing all capabilities as tools (port 18081)
 ├── langfuse/               # Langfuse Postgres, ClickHouse, MinIO & Redis data
 └── tests/                  # Automation, smoke tests, and benchmark tools
     ├── smoke_test.sh       # Runner: executes every per-service test script
     ├── test_ollama.sh      # Ollama API tests (gen, chat, stream, embed, tools, vision)
     ├── test_searxng.sh     # SearXNG tests (UI, JSON, filters, autocomplete, config)
     ├── test_firecrawl.sh   # Firecrawl tests (scrape, search, map, crawl, batch, edge cases)
+    ├── test_gateway.sh     # Gateway/interact/MCP tests (auth, proxies, sessions, actions)
     ├── test_playwright.sh  # Playwright tests (render, wait_after_load, SSRF guard, pool)
     ├── benchmark.sh        # Python/Bash benchmark suite (tok/s, peak VRAM, wall-time)
     └── pull_models.sh      # Script to pull tiered LLM, vision, and embedding models
@@ -37,6 +41,9 @@ An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**
 | **SearXNG** | Privacy Web Metasearch | Enables web search RAG for local agents without external tracking or rate-limits (port `8088`). |
 | **Firecrawl** | Web Scrape/Crawl → Markdown | Converts any URL into clean LLM-ready markdown; also provides the SearXNG-backed `/search` endpoint (port `3002`). |
 | **Playwright** | Headless Browser Renderer | Firecrawl's JS-rendering engine for dynamic sites; reachable on `llm-network` as `firecrawl-playwright:3000`. |
+| **Gateway** | Unified REST Front Door | Single authenticated entry point (port `18080`) proxying Firecrawl, Interact, Ollama, and SearXNG; includes a built-in web console with live service status. |
+| **Interact** | Stateful Browser Automation | Full Playwright sessions behind `/v1/interact` — clicks, forms, screenshots, prompt→action planning via Ollama. Internal only. |
+| **MCP** | Agent Tool Interface | All Firecrawl/interact capabilities as 16 MCP tools (Streamable HTTP, port `18081/mcp`) for Windsurf/Claude/etc. |
 | **Langfuse** | LLM Observability & Tracing | Self-hosted LangSmith alternative — trace trees, token/latency/cost analytics, prompt management, evals (UI port `3000`). |
 | **`.env`** | Versions & Hardware Tuning | Pinned image versions, Flash Attention, KV cache quantization, and model loading limits. |
 | **`pull_models.sh`** | Automated Model Deployment | Downloads tier-categorized models (8GB vs 24GB VRAM, Vision, Embeddings). |
@@ -146,6 +153,50 @@ Firecrawl runs as five containers: the **API/worker** (`firecrawl`, port `3002`)
     -H 'Content-Type: application/json' \
     -d '{"url": "https://example.com"}'
   ```
+
+### Firecrawl Extended: Gateway, Interact & MCP
+Three custom services add a single front door, real browser automation, and an
+agent tool interface on top of upstream Firecrawl. **Other stacks should proxy
+requests through the gateway** (`http://firecrawl-extended-gateway:8080` on
+`app-network`, or `http://localhost:18080` from the host) instead of joining
+`llm-network` and talking to services directly.
+
+* **Gateway** (`:18080`) — the unified REST interface. It proxies:
+  * `/v0`–`/v2/*` → Firecrawl API (scrape, search, map, crawl, batch)
+  * `/v1/interact` → the interact service
+  * `/ollama/*` → Ollama, `/searxng/*` → SearXNG — so consumers get LLM and
+    search through the same front door
+  * `/` → a built-in **web console** with live service-status pills; `/status`
+    reports per-backend health
+  * **Auth:** all Firecrawl/interact paths require `Authorization: Bearer
+    $GATEWAY_API_KEY` (set in `.env`). `/healthz`, `/ollama/*`, and
+    `/searxng/*` are open — those upstreams are already unauthenticated on the
+    host anyway.
+* **Interact** — a stateful Playwright service upstream Firecrawl lacks:
+  `POST /v1/interact` accepts real browser `actions` (`goto`, `click`, `fill`,
+  `waitForSelector`, `screenshot`, …), named **sessions**, **async jobs**
+  (`/v1/interact/async` + `/v1/interact/jobs/:id`), and a **prompt mode** where
+  your local Ollama model plans the actions (`{"url": ..., "prompt": "..."}`).
+  Artifacts (HAR, traces, videos, screenshots) land in `interact/artifacts/`.
+* **MCP** (`:18081/mcp`) — exposes everything as 16 MCP tools (Streamable HTTP)
+  so agents like Windsurf/Claude can call `firecrawl_scrape`,
+  `firecrawl_interact`, `firecrawl_extract`, etc. with the same bearer key.
+
+```bash
+# Scrape through the gateway (same API as Firecrawl, one entry point)
+curl -X POST http://localhost:18080/v1/scrape \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com"}'
+
+# LLM and search through the same front door (no key needed)
+curl http://localhost:18080/ollama/api/tags
+curl "http://localhost:18080/searxng/search?q=test&format=json"
+```
+
+Other projects (e.g. `is-it-canadian`, `rag`) consume the stack by joining the
+external `app-network` and pointing their `FIRECRAWL_URL` / `OLLAMA_URL` /
+`SEARXNG_BASE_URL` at `http://firecrawl-extended-gateway:8080[/ollama|/searxng]`.
 
 ### Langfuse Stack
 Langfuse runs as six containers: **web** (`langfuse-web`, port `3000`) and **worker** (`langfuse-worker`) on `llm-network` so they can reach `ollama:11434` for LLM-assisted evals, plus an internal backend (**Postgres**, **ClickHouse**, **MinIO**, **Redis**) on the private `langfuse-internal` network. MinIO also publishes port `9090` for browser-side media uploads.

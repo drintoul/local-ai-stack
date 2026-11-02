@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🔥 Firecrawl Extended Console</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a22; --panel2: #1c212c; --border: #2a3140;
+    --text: #e6e9ef; --muted: #8b93a7; --accent: #ff6b35; --accent2: #ffb454;
+    --ok: #4ade80; --err: #f87171; --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  header .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
+  #apiKeyWrap { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  input, select, textarea, button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  h1, h2, button, select, .svc, .preset, label, #statusBar, #tabs, #history, .empty { user-select: none; -webkit-user-select: none; }
+  button { cursor: pointer; padding: 6px 12px; background: var(--panel2); }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; font-weight: 600; }
+  button.primary:hover { background: #4c86f7; }
+  button.small { padding: 3px 8px; font-size: 12px; }
+
+  main { display: grid; grid-template-columns: 240px 1fr 1fr; gap: 12px; padding: 12px 16px; height: calc(100vh - 53px); }
+  .col-stack { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  #historyPanel { flex: 0 0 auto; max-height: 320px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .icon-btn { background: none; border: none; padding: 2px; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; }
+  .icon-btn:hover { color: var(--accent); }
+  .icon-btn.copied { color: var(--ok); }
+  .panel .body { padding: 10px 12px; overflow: auto; flex: 1; min-height: 0; }
+
+  #presets .preset { display: block; width: 100%; text-align: left; margin-bottom: 6px; padding: 7px 10px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--border); }
+  #presets .preset:hover { border-color: var(--accent); }
+  #presets .preset b { display: block; font-size: 12.5px; }
+  #presets .preset code { font-size: 10.5px; color: var(--muted); font-family: var(--mono); }
+  .preset .m { display: inline-block; min-width: 44px; font-family: var(--mono); font-size: 10.5px; color: var(--accent2); }
+
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .row > * { flex: 0 0 auto; }
+  .row .grow { flex: 1; }
+  .mbadge { font-family: var(--mono); font-weight: 600; font-size: 12px; padding: 5px 10px; border-radius: 6px; min-width: 56px; text-align: center; user-select: none; }
+  .mbadge[data-m="POST"]   { background: #14351f; color: var(--ok); }
+  .mbadge[data-m="GET"]    { background: #1a2f4a; color: #6aa8ff; }
+  .mbadge[data-m="DELETE"] { background: #3d1a1a; color: var(--err); }
+  .mbadge[data-m="PUT"], .mbadge[data-m="PATCH"] { background: #3d321a; color: var(--accent2); }
+  input#path { font-family: var(--mono); width: 100%; }
+  input#apiKey { width: 180px; font-family: var(--mono); }
+  textarea#body { width: 100%; flex: 1; min-height: 200px; font-family: var(--mono); font-size: 12.5px; resize: none; padding: 10px; line-height: 1.5; }
+  label.small { font-size: 11px; color: var(--muted); display: flex; gap: 5px; align-items: center; }
+
+  #statusBar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12px; min-height: 36px; }
+  .badge { padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+  .badge.ok { background: #14351f; color: var(--ok); }
+  .badge.err { background: #3d1a1a; color: var(--err); }
+  .badge.pending { background: #3d321a; color: var(--accent2); }
+  #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+  #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 10px; color: var(--muted); font-size: 12.5px; }
+  #tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  #responseBody { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .panel .body.split { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  .resp-pane { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+  #logsPane { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+  .logs-hdr { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .logs-hdr .icon-btn { padding: 0; }
+  #logs { flex: 1; overflow: auto; padding: 8px 12px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word; }
+  #logs .t { color: var(--muted); }
+  #renderedMd { font-family: inherit; }
+  #renderedMd h1, #renderedMd h2, #renderedMd h3 { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  #renderedMd code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: 12px; }
+  #renderedMd pre { background: var(--panel2); padding: 10px; border-radius: 6px; overflow-x: auto; }
+  #renderedMd pre code { background: none; padding: 0; }
+  #renderedMd a { color: var(--accent2); }
+  #renderedMd img { max-width: 100%; }
+  #renderedMd blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 12px; color: var(--muted); }
+  img.shot { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; }
+  .hist { font-size: 11.5px; font-family: var(--mono); padding: 6px 8px; border-radius: 5px; cursor: pointer; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist:hover { background: var(--panel2); color: var(--text); }
+  .svc { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-family: var(--mono); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; color: var(--muted); }
+  .svc .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .svc.ok .dot { background: var(--ok); }
+  .svc.degraded .dot { background: var(--accent2); }
+  .svc.down .dot { background: var(--err); }
+  .svc.ok { color: var(--ok); border-color: #2a4a35; }
+  .svc.degraded { color: var(--accent2); border-color: #4a3d2a; }
+  .svc.down { color: var(--err); border-color: #4a2a2a; }
+  .empty { color: var(--muted); font-size: 12.5px; padding: 8px; }
+  .kv { color: var(--muted); font-size: 11.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>🔥</span> Firecrawl Extended Console</h1>
+  <span id="statusPills" style="display:flex;gap:6px"></span>
+  <div id="apiKeyWrap">
+    <label class="kv" for="apiKey">API key</label>
+    <input id="apiKey" type="password" placeholder="optional bearer token" autocomplete="off">
+  </div>
+</header>
+
+<main>
+  <div class="panel">
+    <h2>Endpoints</h2>
+    <div class="body" id="presets"></div>
+  </div>
+
+  <div class="col-stack">
+  <div class="panel" style="flex:1;min-height:0">
+    <h2>Request<button id="copyCurl" class="icon-btn" title="Copy request as cURL"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></h2>
+    <div class="body" style="display:flex;flex-direction:column">
+      <div class="row">
+        <span id="method" class="mbadge" data-m="POST">POST</span>
+        <input id="path" class="grow" placeholder="/v1/scrape" value="/v1/scrape">
+      </div>
+      <textarea id="body" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button class="primary" id="send">Send ▸</button>
+        <button class="small" id="clearBody">Clear</button>
+        <label class="small"><input type="checkbox" id="autopoll"> auto-poll job until done</label>
+      </div>
+    </div>
+  </div>
+  <div class="panel" id="historyPanel">
+    <h2>History</h2>
+    <div class="body" id="history"><div class="empty">No requests yet</div></div>
+  </div>
+  </div>
+
+  <div class="panel">
+    <h2>Response<button id="copyBtn" class="icon-btn" title="Copy active tab content"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></h2>
+    <div id="statusBar"></div>
+    <div id="tabs">
+      <button data-tab="json" class="active">JSON</button>
+      <button data-tab="rendered">Rendered</button>
+      <button data-tab="media">Media</button>
+    </div>
+    <div class="body split">
+      <div class="resp-pane">
+        <div id="responseBody"></div>
+        <div id="renderedMd" style="display:none"></div>
+        <div id="mediaPanel" style="display:none"></div>
+      </div>
+      <div id="logsPane">
+        <div class="logs-hdr">Logs<button id="copyLogs" class="icon-btn" title="Copy logs"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+        <div id="logs"><div class="empty">No activity yet</div></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section id="containerPanel" class="panel" style="margin:0 16px 12px">
+  <h2>Stack Containers <span id="containerSummary" class="kv"></span></h2>
+  <div class="body">
+    <div id="containerGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px"></div>
+  </div>
+</section>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+
+// ---------------------------------------------------------------- presets ---
+const PRESETS = [
+  { name: "Scrape", m: "POST", path: "/v1/scrape",
+    body: { url: "https://example.com", formats: ["markdown", "links"] } },
+  { name: "Extract (Ollama)", m: "POST", path: "/v1/extract",
+    body: { urls: ["https://example.com"], prompt: "Extract the main topic", schema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] } } },
+  { name: "Map", m: "POST", path: "/v2/map",
+    body: { url: "https://example.com", limit: 50 } },
+  { name: "Search", m: "POST", path: "/v2/search",
+    body: { query: "firecrawl web scraping", limit: 5, scrapeOptions: { formats: ["markdown"] } } },
+  { name: "Research", m: "POST", path: "/v1/research",
+    body: { query: "which cruise ships does Norwegian Cruise Line operate on Hawaii itineraries", limit: 5 } },
+  { name: "Batch scrape", m: "POST", path: "/v2/batch/scrape",
+    body: { urls: ["https://example.com"], formats: ["markdown"] } },
+  { name: "Batch status", m: "GET", path: "/v2/batch/scrape/:id", body: null },
+  { name: "Crawl", m: "POST", path: "/v2/crawl",
+    body: { url: "https://example.com", limit: 10, scrapeOptions: { formats: ["markdown"] } } },
+  { name: "Crawl status", m: "GET", path: "/v2/crawl/:id", body: null },
+  { name: "Active crawls", m: "GET", path: "/v2/crawl/active", body: null },
+  { name: "Cancel crawl", m: "DELETE", path: "/v2/crawl/:id", body: null },
+  { name: "Interact (actions)", m: "POST", path: "/v1/interact",
+    body: { url: "https://example.com", actions: [
+      { type: "assert", target: { getBy: "role", role: "link", name: "Learn more" }, assertions: [{ type: "toBeVisible" }] },
+      { type: "click", target: { getBy: "role", role: "link", name: "Learn more" }, waitForURL: "**/iana.org/**" },
+      { type: "scrape" }], formats: ["markdown", "ariaSnapshot", "screenshot"] } },
+  { name: "Interact (prompt)", m: "POST", path: "/v1/interact",
+    body: { url: "https://example.com", prompt: "click the Learn more link", formats: ["markdown"] } },
+  { name: "Interact (async)", m: "POST", path: "/v1/interact/async",
+    body: { url: "https://example.com", prompt: "click the Learn more link", maxSteps: 5, vision: true, adblock: true, formats: ["markdown"] } },
+  { name: "Interact job", m: "GET", path: "/v1/interact/jobs/:id", body: null },
+  { name: "Interact sessions", m: "GET", path: "/v1/interact/sessions", body: null },
+];
+
+const presetsEl = $("#presets");
+for (const p of PRESETS) {
+  const b = document.createElement("button");
+  b.className = "preset";
+  b.innerHTML = `<b><span class="m">${p.m}</span> ${p.name}</b><code>${p.path}</code>`;
+  b.onclick = () => {
+    $("#method").textContent = p.m;
+    $("#method").dataset.m = p.m;
+    $("#path").value = resolvePath(p.path).path;
+    $("#body").value = p.body ? JSON.stringify(p.body, null, 2) : "";
+  };
+  presetsEl.appendChild(b);
+}
+
+// ------------------------------------------------------------- path params ---
+// Paths may contain :param placeholders (e.g. /v2/crawl/:id). Values are
+// remembered per-route in localStorage; job ids returned by POSTs are stored
+// automatically so status/cancel presets pre-fill themselves.
+const PARAM_KEY = "fcx_params";
+const savedParams = () => JSON.parse(localStorage.getItem(PARAM_KEY) || "{}");
+
+function rememberJob(path, id) {
+  if (!id) return;
+  const s = savedParams();
+  s[`${path}/:id`] = id;
+  s["id"] = id;
+  localStorage.setItem(PARAM_KEY, JSON.stringify(s));
+}
+
+function resolvePath(path, { interactive = false } = {}) {
+  const s = savedParams();
+  let missing = false;
+  const out = path.replace(/:(\w+)/g, (tok, name) => {
+    const key = `${path.split(":")[0]}:${name}`;
+    let v = s[key] ?? s[name];
+    if ((v == null || v === "") && interactive) {
+      v = prompt(`Value for "${tok}" in ${path}`, "") || "";
+      missing = missing || !v;
+      if (v) { s[key] = v; s[name] = v; localStorage.setItem(PARAM_KEY, JSON.stringify(s)); }
+    }
+    return v ? encodeURIComponent(v) : tok;
+  });
+  return { path: out, missing };
+}
+
+// ---------------------------------------------------------------- request ---
+let lastResponse = null;
+
+function headers() {
+  const h = { "Content-Type": "application/json" };
+  const k = $("#apiKey").value.trim();
+  if (k) h["Authorization"] = `Bearer ${k}`;
+  return h;
+}
+$("#apiKey").value = localStorage.getItem("fcx_apikey") || "";
+$("#apiKey").addEventListener("change", () => localStorage.setItem("fcx_apikey", $("#apiKey").value));
+
+// Request body is always pretty-printed: presets load formatted, and edits
+// are re-formatted automatically when the editor loses focus.
+$("#body").addEventListener("blur", () => {
+  const v = $("#body").value.trim();
+  if (!v) return;
+  try { $("#body").value = JSON.stringify(JSON.parse(v), null, 2); } catch { /* leave as-is */ }
+});
+$("#clearBody").onclick = () => { $("#body").value = ""; };
+
+function flashCopied(btn) {
+  btn.classList.add("copied");
+  setTimeout(() => btn.classList.remove("copied"), 1200);
+}
+function copyText(text) {
+  return navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove();
+  });
+}
+
+// Copy the whole request (method + resolved path + headers + body) as curl.
+$("#copyCurl").onclick = async () => {
+  const { path, missing } = resolvePath($("#path").value.trim(), { interactive: true });
+  if (!path || missing) return;
+  const lines = [`curl -X ${$("#method").textContent} '${location.origin}${path}'`];
+  for (const [k, v] of Object.entries(headers())) lines.push(`  -H '${k}: ${v}'`);
+  const body = $("#body").value.trim();
+  if (body && !["GET", "DELETE"].includes($("#method").textContent)) lines.push(`  -d '${body.replace(/'/g, "'\\''")}'`);
+  await copyText(lines.join(" \\\n"));
+  flashCopied($("#copyCurl"));
+};
+
+// ------------------------------------------------------------------- logs ---
+function log(msg, at) {
+  const el = $("#logs");
+  if (el.querySelector(".empty")) el.innerHTML = "";
+  const d = document.createElement("div");
+  const t = document.createElement("span");
+  t.className = "t";
+  t.textContent = `[${new Date(at ?? Date.now()).toLocaleTimeString("en-GB")}] `;
+  d.appendChild(t);
+  d.appendChild(document.createTextNode(msg));
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLogs() { $("#logs").innerHTML = ""; }
+$("#copyLogs").onclick = async () => {
+  const text = $("#logs").innerText;
+  if (!text.trim() || $("#logs").querySelector(".empty")) return;
+  await copyText(text);
+  flashCopied($("#copyLogs"));
+};
+
+let pollTimer = null;
+// How many job events/action entries have already been shown in Logs —
+// keeps polling updates delta-only.
+let pollSeen = { events: 0, actions: 0 };
+$("#send").onclick = () => sendRequest();
+
+async function sendRequest() {
+  const method = $("#method").textContent;
+  const resolved = resolvePath($("#path").value.trim(), { interactive: true });
+  if (resolved.missing) return flashStatus("path parameter left empty", "err");
+  const path = resolved.path;
+  if (!path) return flashStatus("path required", "err");
+  let body = $("#body").value.trim();
+  if (body && method !== "GET" && method !== "DELETE") {
+    try { JSON.parse(body); } catch (e) { return flashStatus("body is not valid JSON", "err"); }
+  } else body = null;
+
+  // Clear previous results immediately.
+  clearTimeout(pollTimer);
+  lastResponse = null; lastMarkdown = null; lastMedia = []; lastImages = [];
+  $("#responseBody").textContent = "";
+  $("#renderedMd").innerHTML = "";
+  $("#mediaPanel").innerHTML = "";
+  flashStatus("sending…", "pending");
+  clearLogs();
+  log(`→ ${method} ${path}`);
+  const t0 = performance.now();
+  try {
+    const res = await fetch(path, { method, headers: headers(), body });
+    const text = await res.text();
+    const ms = Math.round(performance.now() - t0);
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* raw */ }
+    log(`← HTTP ${res.status} · ${ms} ms`);
+    lastResponse = { status: res.status, json, text };
+    showResponse(res.status, ms, json, text);
+    addHistory(method, path, res.status);
+    if (json?.warning) log(`warning: ${json.warning}`);
+    for (const a of json?.plannedActions ?? []) {
+      const tgt = a.target ? ` → ${JSON.stringify(a.target).slice(0, 100)}` : "";
+      log(`plan: ${a.type}${tgt}`);
+    }
+    for (const e of (json?.events ?? []).slice(-80)) {
+      if (!e.text || e.text === "{}") continue;
+      log(`[${e.kind}] ${e.text}`, e.at);
+    }
+    if (json?.answer) log(`answer: ${json.answer}`);
+    for (const a of json?.actionsLog ?? json?.data?.actionsLog ?? []) {
+      const st = a.error ? `failed — ${a.error}` : (a.status ?? "ok");
+      log(`action ${a.type ?? a.action ?? "?"}: ${st}`);
+    }
+    if (json?.id) {
+      const jobKey = /interact\/async$/.test(path) ? path.replace(/\/async$/, "/jobs") : path.replace(/:.*$/, "");
+      rememberJob(jobKey, json.id);
+    }
+    maybeAutopoll(method, path, json);
+  } catch (e) {
+    log(`error: ${e.message}`);
+    flashStatus("network error: " + e.message, "err");
+  }
+}
+
+// ------------------------------------------------------------- job polling ---
+function jobStatusPath(method, path, json) {
+  if (method !== "POST" || !json?.id) return null;
+  if (/\/v[12]\/interact\/async$/.test(path)) return path.replace(/\/async$/, `/jobs/${json.id}`);
+  if (/\/v[12]\/(crawl|batch\/scrape|extract)$/.test(path)) return `${path}/${json.id}`;
+  return null;
+}
+
+function maybeAutopoll(method, path, json) {
+  clearTimeout(pollTimer);
+  pollSeen = { events: 0, actions: 0 };
+  const sp = jobStatusPath(method, path, json);
+  if (!sp) return;
+  log(`job ${json.id} → ${sp}`);
+  const go = () => poll(sp);
+  if ($("#autopoll").checked) pollTimer = setTimeout(go, 1500);
+  const btn = document.createElement("button");
+  btn.className = "small";
+  btn.textContent = "Poll job →";
+  btn.onclick = go;
+  $("#statusBar").appendChild(btn);
+}
+
+async function poll(sp) {
+  const res = await fetch(sp, { headers: headers() });
+  const json = await res.json().catch(() => null);
+  lastResponse = { status: res.status, json, text: JSON.stringify(json) };
+  showResponse(res.status, null, json, JSON.stringify(json));
+  const st = json?.status;
+  const prog = json?.total != null ? ` ${json.completed ?? 0}/${json.total}` : "";
+  log(`poll: ${st ?? res.status}${prog}`);
+  // Stream interact-job events/actions into Logs as they arrive.
+  for (const e of (json?.events ?? []).slice(pollSeen.events)) {
+    if (e.text && e.text !== "{}") log(`[${e.kind}] ${e.text}`, e.at);
+  }
+  pollSeen.events = (json?.events ?? []).length;
+  for (const a of (json?.actionsLog ?? []).slice(pollSeen.actions)) {
+    const s = a.error ? `failed — ${a.error.split("\n")[0].slice(0, 150)}` : (a.status ?? "ok");
+    log(`action ${a.type}: ${s}`);
+  }
+  pollSeen.actions = (json?.actionsLog ?? []).length;
+  if (json?.answer && st !== "running") log(`answer: ${json.answer}`);
+  if (json && ["scraping", "processing", "crawling", "in_progress", "indexing", "running", "queued", "pending"].includes(st)) {
+    if ($("#autopoll").checked) pollTimer = setTimeout(() => poll(sp), 2000);
+  }
+}
+
+// ---------------------------------------------------------------- display ---
+function flashStatus(msg, kind) {
+  $("#statusBar").innerHTML = "";
+  const b = document.createElement("span");
+  b.className = `badge ${kind || "ok"}`;
+  b.textContent = msg;
+  $("#statusBar").appendChild(b);
+}
+
+function showResponse(status, ms, json, raw) {
+  $("#statusBar").innerHTML = "";
+  const b = document.createElement("span");
+  b.className = `badge ${status < 400 ? "ok" : "err"}`;
+  b.textContent = status;
+  $("#statusBar").appendChild(b);
+  if (ms != null) {
+    const t = document.createElement("span");
+    t.className = "kv"; t.textContent = `${ms} ms`;
+    $("#statusBar").appendChild(t);
+  }
+  if (json?.status) {
+    const s = document.createElement("span");
+    s.className = "kv"; s.textContent = `job: ${json.status}`;
+    $("#statusBar").appendChild(s);
+  }
+  $("#responseBody").textContent = json ? JSON.stringify(json, null, 2) : raw;
+  buildRendered(json);
+  buildMedia(json);
+  switchTab("json");
+}
+
+let activeTab = "json";
+let lastMarkdown = null;
+let lastMedia = [];
+let lastImages = [];
+
+// Collect markdown-bearing docs across response shapes:
+//   v1/v2 scrape          -> data.markdown
+//   v1 search             -> data[]
+//   v2 search             -> data.web[] (+ news/images groups)
+//   crawl/batch status    -> data[]
+function collectDocs(json) {
+  const d = json?.data;
+  if (!d || typeof d !== "object") return [];
+  if (typeof d.markdown === "string")
+    return [{ title: d.metadata?.title, url: d.metadata?.sourceURL, markdown: d.markdown }];
+  const groups = [];
+  if (Array.isArray(d)) groups.push(d);
+  for (const k of ["web", "news", "images"]) if (Array.isArray(d[k])) groups.push(d[k]);
+  const docs = [];
+  for (const g of groups)
+    for (const it of g)
+      if (it && (it.markdown || it.description))
+        docs.push({
+          title: it.metadata?.title || it.title,
+          url: it.metadata?.sourceURL || it.url,
+          markdown: it.markdown || it.description || "",
+        });
+  return docs;
+}
+
+function buildRendered(json) {
+  const el = $("#renderedMd");
+  const docs = collectDocs(json);
+  let md = docs.length
+    ? docs.map((d) =>
+        (d.url ? `### [${d.title || d.url}](${d.url})` : d.title ? `### ${d.title}` : "")
+        + "\n\n" + d.markdown
+      ).join("\n\n---\n\n")
+    : null;
+  // Agent answers deserve top billing — the scraped markdown is just the
+  // page the agent happened to end on, not the response to the prompt.
+  if (typeof json?.answer === "string" && json.answer.trim()) {
+    const head = `## Agent answer\n\n${json.answer.trim()}`;
+    md = md ? `${head}\n\n---\n\n*Final page capture:*\n\n${md}` : head;
+  }
+  lastMarkdown = md;
+  lastImages = [];
+  if (md) {
+    // Pull image refs out of the markdown — they go to the Media tab.
+    md = md.replace(/!\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => {
+      lastImages.push({ alt, src });
+      return alt || "";
+    });
+    // "\ " at end-of-line is a markdown hard break; bare "\" lines too.
+    md = md.replace(/[ \t]*\\+[ \t]*(?=\n|$)/g, "");
+    md = md.replace(/\n{3,}/g, "\n\n");
+    el.innerHTML = mdToHtml(md);
+  } else {
+    el.innerHTML = '<div class="empty">No markdown in response</div>';
+  }
+}
+
+function buildMedia(json) {
+  const el = $("#mediaPanel");
+  el.innerHTML = "";
+  const shots = [];
+  const walk = (o) => {
+    if (!o || typeof o !== "object") return;
+    for (const [k, v] of Object.entries(o)) {
+      if ((k === "screenshot" || k === "pdf") && typeof v === "string" && v.length > 100) shots.push({ k, v });
+      else if (typeof v === "object") walk(v);
+    }
+  };
+  walk(json?.data ?? json);
+  lastMedia = shots;
+  if (!shots.length && !lastImages.length) { el.innerHTML = '<div class="empty">No media in response</div>'; return; }
+  // Images extracted from markdown (external URLs).
+  for (const { alt, src } of lastImages) {
+    const fig = document.createElement("figure");
+    fig.style.margin = "0 0 10px";
+    const img = document.createElement("img");
+    img.className = "shot"; img.src = src; img.loading = "lazy";
+    fig.appendChild(img);
+    if (alt) {
+      const cap = document.createElement("figcaption");
+      cap.className = "kv"; cap.textContent = alt;
+      fig.appendChild(cap);
+    }
+    el.appendChild(fig);
+  }
+  for (const { k, v } of shots) {
+    if (k === "pdf") {
+      const a = document.createElement("a");
+      a.href = `data:application/pdf;base64,${v}`;
+      a.download = "page.pdf"; a.textContent = "Download PDF";
+      a.style.color = "var(--accent2)"; el.appendChild(a);
+    } else {
+      const img = document.createElement("img");
+      img.className = "shot";
+      img.src = `data:image/png;base64,${v}`;
+      el.appendChild(img);
+    }
+  }
+}
+
+// minimal markdown -> html (headings, bold/italic, code, links, lists, quotes)
+function mdToHtml(md) {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  // Extract links globally first — scraped markdown often wraps link text
+  // across lines ([text\ntext](url)), which the line-by-line pass can't see.
+  const links = [];
+  md = md.replace(/\[([^\]]+)\]\((\S+?)(?:\s+"[^"]*")?\)/g, (_m, t, u) => {
+    const label = t.replace(/-{3,}/g, " ").replace(/#+\s*/g, "").replace(/\s+/g, " ").trim() || u;
+    links.push(`<a href="${esc(u)}" target="_blank" rel="noopener">${inline(label)}</a>`);
+    return `\u0000${links.length - 1}\u0000`;
+  });
+  const lines = md.split("\n");
+  let html = "", inCode = false, inList = false, inPre = false;
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      if (inCode) { html += "</code></pre>"; inCode = false; inPre = false; }
+      else { html += "<pre><code>"; inCode = true; inPre = true; }
+      continue;
+    }
+    if (inCode) { html += esc(line) + "\n"; continue; }
+    if (/^#{1,6}\s/.test(line)) {
+      const n = line.match(/^#+/)[0].length;
+      html += `<h${n}>${inline(line.replace(/^#+\s*/, ""))}</h${n}>`; continue;
+    }
+    if (/^\s*[-*+]\s/.test(line)) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      html += `<li>${inline(line.replace(/^\s*[-*+]\s*/, ""))}</li>`; continue;
+    }
+    if (/^\s*\d+\.\s/.test(line)) {
+      if (!inList) { html += "<ol>"; inList = true; }
+      html += `<li>${inline(line.replace(/^\s*\d+\.\s*/, ""))}</li>`; continue;
+    }
+    if (inList) { html += "</ul>"; inList = false; }
+    if (/^>\s?/.test(line)) { html += `<blockquote>${inline(line.replace(/^>\s?/, ""))}</blockquote>`; continue; }
+    if (/^---+$/.test(line.trim())) { html += "<hr>"; continue; }
+    if (line.trim() === "") { html += "<br>"; continue; }
+    html += `<p>${inline(line)}</p>`;
+  }
+  if (inList) html += "</ul>";
+  if (inPre) html += "</code></pre>";
+  // Restore extracted links.
+  return html.replace(/\u0000(\d+)\u0000/g, (_m, i) => links[+i]);
+}
+
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  $("#responseBody").style.display = name === "json" ? "" : "none";
+  $("#renderedMd").style.display = name === "rendered" ? "" : "none";
+  $("#mediaPanel").style.display = name === "media" ? "" : "none";
+}
+document.querySelectorAll("#tabs button[data-tab]").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
+
+// Copies whatever the active tab shows: pretty JSON, the markdown source,
+// or the media payload(s) (base64 / data URL).
+$("#copyBtn").onclick = async () => {
+  if (!lastResponse) return;
+  let text;
+  if (activeTab === "rendered") {
+    if (!lastMarkdown) return;
+    text = lastMarkdown;
+  } else if (activeTab === "media") {
+    // Copy the first screenshot as an actual image (not base64 text).
+    const shot = lastMedia.find((m) => m.k === "screenshot");
+    if (shot && window.ClipboardItem && navigator.clipboard.write) {
+      const blob = await (await fetch(`data:image/png;base64,${shot.v}`)).blob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      flashCopied($("#copyBtn"));
+      return;
+    }
+    // Fallback (or no screenshots): copy image URLs / PDF data URL as text.
+    const parts = [
+      ...lastImages.map((i) => i.src),
+      ...lastMedia.map(({ k, v }) =>
+        k === "pdf" ? `data:application/pdf;base64,${v}` : `data:image/png;base64,${v}`),
+    ];
+    if (!parts.length) return;
+    text = parts.join("\n");
+  } else {
+    text = lastResponse.json ? JSON.stringify(lastResponse.json, null, 2) : lastResponse.text;
+  }
+  await copyText(text);
+  flashCopied($("#copyBtn"));
+};
+
+// ---------------------------------------------------------------- history ---
+const HKEY = "fcx_history";
+function addHistory(m, p, status) {
+  const h = JSON.parse(localStorage.getItem(HKEY) || "[]");
+  h.unshift({ m, p, status, body: $("#body").value, t: Date.now() });
+  localStorage.setItem(HKEY, JSON.stringify(h.slice(0, 20)));
+  renderHistory();
+}
+function renderHistory() {
+  const h = JSON.parse(localStorage.getItem(HKEY) || "[]").slice(0, 5);
+  const el = $("#history");
+  el.innerHTML = h.length ? "" : '<div class="empty">No requests yet</div>';
+  for (const item of h) {
+    const d = document.createElement("div");
+    d.className = "hist";
+    d.textContent = `${item.m} ${item.p} → ${item.status}`;
+    d.title = new Date(item.t).toLocaleTimeString();
+    d.onclick = () => { $("#method").textContent = item.m; $("#method").dataset.m = item.m; $("#path").value = item.p; $("#body").value = item.body; };
+    el.appendChild(d);
+  }
+}
+renderHistory();
+
+// ----------------------------------------------------- service status pills ---
+async function refreshStatus() {
+  const el = $("#statusPills");
+  let data;
+  try { data = await (await fetch("/status", { headers: headers() })).json(); }
+  catch { data = null; }
+  el.innerHTML = "";
+  const services = ["firecrawl", "ollama", "searxng", "playwright"];
+  for (const name of services) {
+    const s = data?.[name] || { status: "down" };
+    const pill = document.createElement("span");
+    pill.className = `svc ${s.status}`;
+    const ms = s.ms != null ? ` ${s.ms}ms` : "";
+    pill.title = `${name}: ${s.status}${ms}${s.error ? " — " + s.error : ""}`;
+    pill.innerHTML = `<span class="dot"></span>${name}`;
+    el.appendChild(pill);
+  }
+}
+refreshStatus();
+setInterval(refreshStatus, 15000);
+
+// ----------------------------------------------------- container health grid ---
+async function refreshContainers() {
+  const grid = $("#containerGrid");
+  let list;
+  try { list = await (await fetch("/containers", { headers: headers() })).json(); }
+  catch { list = null; }
+  if (!Array.isArray(list)) {
+    grid.innerHTML = '<div class="empty">container info unavailable (docker socket not mounted?)</div>';
+    return;
+  }
+  const up = list.filter((c) => c.health === "healthy" || c.health === "no-healthcheck").length;
+  $("#containerSummary").textContent = `${up}/${list.length} up`;
+  grid.innerHTML = "";
+  for (const c of list) {
+    const cls = c.health === "starting" ? "degraded"
+      : (c.health === "healthy" || c.health === "no-healthcheck") ? "ok" : "down";
+    const d = document.createElement("div");
+    d.className = `svc ${cls}`;
+    d.style.padding = "6px 8px";
+    d.title = `${c.name}\n${c.status}`;
+    d.innerHTML = `<span class="dot"></span>${c.service} <span class="kv">${c.health === "no-healthcheck" ? "running" : c.health}</span>`;
+    grid.appendChild(d);
+  }
+}
+refreshContainers();
+setInterval(refreshContainers, 15000);
+
+// load first preset
+document.querySelector(".preset").click();
+</script>
+</body>
+</html>
