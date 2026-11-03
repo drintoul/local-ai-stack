@@ -2,6 +2,10 @@
 
 An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**. This repository integrates **Ollama** for model inference, **SearXNG** for real-time web search capabilities, **Firecrawl** for web scraping/crawling (backed by headless **Playwright** Chromium), **Langfuse** for LLM observability/tracing, and automated tools for model provisioning and hardware benchmarking.
 
+![Gateway web console: endpoint list, a POST /v1/interact request, and the rendered page response](docs/console.png)
+
+*The gateway’s built-in web console (port 18080) — here running a Playwright Interact session and rendering the result.*
+
 ---
 
 ## 🏗 System Architecture & Directory Map
