@@ -20,6 +20,8 @@ An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**
 ├── interact/               # Stateful Playwright browser-automation service
 ├── mcp/                    # MCP server exposing all capabilities as tools (port 18081)
 ├── langfuse/               # Langfuse Postgres, ClickHouse, MinIO & Redis data
+├── examples/               # runnable demos (langchain_demo.py -> Langfuse traces)
+├── LANGFUSE.md             # Langfuse how-to: OTEL tracing, SDK, UI walkthrough
 └── tests/                  # Automation, smoke tests, and benchmark tools
     ├── smoke_test.sh       # Runner: executes every per-service test script
     ├── test_ollama.sh      # Ollama API tests (gen, chat, stream, embed, tools, vision)
@@ -27,6 +29,8 @@ An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**
     ├── test_firecrawl.sh   # Firecrawl tests (scrape, search, map, crawl, batch, edge cases)
     ├── test_gateway.sh     # Gateway/interact/MCP tests (auth, proxies, sessions, actions)
     ├── test_playwright.sh  # Playwright tests (render, wait_after_load, SSRF guard, pool)
+    ├── test_langfuse.sh    # Langfuse tests (health, OTEL ingest -> ClickHouse, auth)
+    ├── extract.py          # Local structured extraction: scrape -> Ollama JSON
     ├── benchmark.sh        # Python/Bash benchmark suite (tok/s, peak VRAM, wall-time)
     └── pull_models.sh      # Script to pull tiered LLM, vision, and embedding models
 ```
@@ -39,7 +43,7 @@ An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**
 | :--- | :--- | :--- |
 | **Ollama** | Local Model Inference | Serves GGUF-quantized LLMs, vision, and embedding models via REST API (port `11434`). |
 | **SearXNG** | Privacy Web Metasearch | Enables web search RAG for local agents without external tracking or rate-limits (port `8088`). |
-| **Firecrawl** | Web Scrape/Crawl → Markdown | Converts any URL into clean LLM-ready markdown; also provides the SearXNG-backed `/search` endpoint (port `3002`). |
+| **Firecrawl** | Web Scrape/Crawl → Markdown | Converts any URL into clean LLM-ready markdown; also provides the SearXNG-backed `/search` endpoint (localhost-only `127.0.0.1:3002` — external access goes through the gateway). |
 | **Playwright** | Headless Browser Renderer | Firecrawl's JS-rendering engine for dynamic sites; reachable on `llm-network` as `firecrawl-playwright:3000`. |
 | **Gateway** | Unified REST Front Door | Single authenticated entry point (port `18080`) proxying Firecrawl, Interact, Ollama, and SearXNG; includes a built-in web console with live service status. |
 | **Interact** | Stateful Browser Automation | Full Playwright sessions behind `/v1/interact` — clicks, forms, screenshots, prompt→action planning via Ollama. Internal only. |
@@ -230,7 +234,7 @@ Langfuse runs as six containers: **web** (`langfuse-web`, port `3000`) and **wor
 
 * **Updating Services:** To pull the latest Docker image updates:
   ```bash
-  docker compose pull && docker compose up -d
+  docker compose pull && docker compose up -d --build
   ```
 * **Monitoring Logs:** View real-time container output:
   ```bash

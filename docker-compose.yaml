@@ -1,5 +1,9 @@
 # =============================================================================
-# LOCAL AI STACK: Ollama + SearXNG + Firecrawl (Playwright)
+# LOCAL AI STACK
+#   Ollama (LLM) · SearXNG (search) · Firecrawl + Playwright (scraping)
+#   Firecrawl Extended: gateway :18080 (front door) · interact · MCP :18081
+#   Langfuse (observability) :3000
+#   Storage: host bind mounts only. All config vars live in .env (no defaults).
 # =============================================================================
 name: local-ai-stack
 
@@ -46,6 +50,7 @@ x-langfuse-env: &langfuse-env
   LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
   OLLAMA_BASE_URL: http://ollama:11434
 
+# Shared log-rotation policy applied to every service (10MB x 3 files max).
 x-logging: &default-logging
   driver: json-file
   options:
