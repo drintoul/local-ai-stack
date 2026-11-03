@@ -1,4 +1,4 @@
-# 🚀 Local AI Stack (`local-ai-stack`)
+# 🚀 Local AI Stack
 
 An all-in-one, privacy-focused local LLM ecosystem powered by **Docker Compose**. This repository integrates **Ollama** for model inference, **SearXNG** for real-time web search capabilities, **Firecrawl** for web scraping/crawling (backed by headless **Playwright** Chromium), **Langfuse** for LLM observability/tracing, and automated tools for model provisioning and hardware benchmarking.
 
