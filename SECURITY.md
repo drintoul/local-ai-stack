@@ -3,7 +3,7 @@
 ## Supported Versions
 
 This project tracks upstream container images (pinned by tag or digest in
-`.env`). Only the latest commit on `main` is supported — keep your deployment
+`.env`). Only the latest commit on `master` is supported — keep your deployment
 updated with:
 
 ```bash
